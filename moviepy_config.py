@@ -1,0 +1,1 @@
+IMAGEMAGICK_BINARY = "magick"
