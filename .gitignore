@@ -4,3 +4,5 @@ assets/voice/
 assets/evening/ 
 assets/morning/ 
 output/ 
+__pycache__/ 
+.vscode/ 
