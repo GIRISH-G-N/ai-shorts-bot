@@ -1,7 +1,7 @@
 """
 script_generator.py
-Uses Claude API to generate high-quality, unique short-form scripts.
-Niche: Gen Z Wealth / Dark Truth / Silent Grind / Uncomfortable Facts
+Generates unique short-form video scripts using Groq API (FREE).
+Niche: Dark Truth / Gen Z Wealth / Silent Grind / Uncomfortable Facts
 """
 
 import os
@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 HISTORY_FILE = "script_history.json"
 CONTENT_NICHE = os.getenv("CONTENT_NICHE", "dark_truth")
 
@@ -24,7 +24,7 @@ slot = sys.argv[1] if len(sys.argv) > 1 else "morning"
 # ==============================
 NICHE_PROMPTS = {
     "dark_truth": """
-You create short-form video scripts for a YouTube Shorts / Instagram Reels channel.
+You create short-form video scripts for YouTube Shorts and Instagram Reels.
 The niche is "Dark Truths" — uncomfortable facts about life, money, success, and people
 that most people know deep down but nobody says out loud.
 
@@ -39,12 +39,11 @@ Rules:
 - Vary the topics: sometimes about friendships, sometimes money, sometimes time, sometimes identity
 - NEVER repeat the same topic twice in a row
 
-Slot context: {"morning": "energizing, makes them want to ACT", "evening": "reflective, makes them think"}
 Current slot: {slot}
 """,
 
     "gen_z_wealth": """
-You create short-form video scripts for a YouTube Shorts / Instagram Reels channel.
+You create short-form video scripts for YouTube Shorts and Instagram Reels.
 The niche is practical wealth knowledge for Gen Z (18-25 year olds).
 Real information, not fluff. Things school never taught them.
 
@@ -62,7 +61,7 @@ Current slot: {slot}
 """,
 
     "silent_grind": """
-You create short-form video scripts for YouTube Shorts / Instagram Reels.
+You create short-form video scripts for YouTube Shorts and Instagram Reels.
 The niche is "Silent Grind" — for people who are building something quietly,
 without showing off, without external validation.
 
@@ -80,7 +79,7 @@ Current slot: {slot}
 """,
 
     "uncomfortable": """
-You create short-form video scripts for YouTube Shorts / Instagram Reels.
+You create short-form video scripts for YouTube Shorts and Instagram Reels.
 The niche is uncomfortable truths about modern life — social media, relationships,
 careers, self-deception, and the gap between who people are and who they pretend to be.
 
@@ -116,18 +115,21 @@ def is_duplicate(script, history):
     return h in history["hashes"], h
 
 # ==============================
-# CLAUDE API CALL
+# GROQ API CALL (FREE)
 # ==============================
-def call_claude(prompt):
+def call_groq(prompt):
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY not set in .env")
+
     headers = {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json"
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
     }
 
     body = {
-        "model": "claude-opus-4-5",
+        "model": "llama3-8b-8192",  # Free, fast, great quality
         "max_tokens": 300,
+        "temperature": 0.9,  # Higher = more creative and varied
         "messages": [
             {
                 "role": "user",
@@ -137,7 +139,7 @@ def call_claude(prompt):
     }
 
     response = requests.post(
-        "https://api.anthropic.com/v1/messages",
+        "https://api.groq.com/openai/v1/chat/completions",
         headers=headers,
         json=body,
         timeout=30
@@ -145,41 +147,34 @@ def call_claude(prompt):
 
     response.raise_for_status()
     data = response.json()
-    return data["content"][0]["text"].strip()
+    return data["choices"][0]["message"]["content"].strip()
 
 # ==============================
 # GENERATE SCRIPT
 # ==============================
 def generate_script():
-    if not ANTHROPIC_API_KEY:
-        raise RuntimeError("ANTHROPIC_API_KEY not set in .env")
-
     history = load_history()
 
     niche_template = NICHE_PROMPTS.get(CONTENT_NICHE, NICHE_PROMPTS["dark_truth"])
-    system_prompt = niche_template.replace("{slot}", slot)
+    prompt = niche_template.replace("{slot}", slot)
 
     last_topics = history.get("last_topics", [])
-    avoid_note = ""
     if last_topics:
-        avoid_note = f"\n\nIMPORTANT: Do NOT write about these topics used recently: {', '.join(last_topics[-3:])}"
+        prompt += f"\n\nDo NOT write about these recently used topics: {', '.join(last_topics[-3:])}"
 
-    full_prompt = system_prompt + avoid_note + "\n\nWrite ONE script now. Only output the script text itself, nothing else."
+    prompt += "\n\nWrite ONE script now. Output ONLY the script text, nothing else. No quotes, no labels, no explanations."
 
     for attempt in range(3):
-        script = call_claude(full_prompt)
-
-        # Clean any accidental formatting
+        script = call_groq(prompt)
         script = script.strip().strip('"').strip("'")
 
         is_dup, hash_id = is_duplicate(script, history)
         if not is_dup:
             history["hashes"].append(hash_id)
 
-            # Track topic roughly (first 4 words as fingerprint)
             topic_key = " ".join(script.split()[:4])
             history.setdefault("last_topics", []).append(topic_key)
-            history["last_topics"] = history["last_topics"][-10:]  # Keep last 10
+            history["last_topics"] = history["last_topics"][-10:]
 
             save_history(history)
 
